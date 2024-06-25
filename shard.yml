@@ -1,0 +1,13 @@
+name: pqueue
+version: 0.1.0
+
+authors:
+  - Beta Ziliani <beta@manas.tech>
+
+targets:
+  pqueue:
+    main: src/pqueue.cr
+
+crystal: '>= 1.13.0-dev'
+
+license: MIT
