@@ -13,6 +13,8 @@ module PQueue
       getter k : K
       property level : Int32
       property inserting : Bool = true
+
+      # next node is deleted
       property deleted : Bool = false
       property v : V
 
@@ -78,24 +80,24 @@ module PQueue
     def locate_preds(k : K, preds : Array(Node(K, V)), succs : Array(Node(K, V))) : Node(K, V)?
       d = false
 
-      x = @head
+      pred = @head
       i = NUM_LEVELS - 1
       while (i >= 0)
-        x_next = x.@next[i]
+        cur = pred.@next[i]
 
-        d = x_next.deleted
+        d = pred.deleted
 
-        while (x_next.k < k || x_next.@next[0].deleted) || ((i == 0) && d)
+        while (cur.k < k || cur.deleted) || ((i == 0) && d)
           # Record bottom level deleted node not having delete flag
           # set, if traversed.
-          del = x_next if (i == 0 && d)
+          del = cur if (i == 0 && d)
 
-          x = x_next
-          x_next = x.@next[i]
-          d = x_next.deleted
+          pred = cur
+          cur = pred.@next[i]
+          d = pred.deleted
         end
-        preds[i] = x
-        succs[i] = x_next
+        preds[i] = pred
+        succs[i] = cur
         i -= 1
       end
       del
@@ -125,6 +127,7 @@ module PQueue
         # return if key already exists, i.e., is present in a non-deleted node
         if (succs[0].k == k && !preds[0].@next[0].deleted && preds[0].@next[0] == succs[0])
           new.inserting = false
+          succs[0].v = v # update value
           return
         end
 
@@ -144,7 +147,7 @@ module PQueue
         # only new is deleted as well, but this we can't tell) If a
         # candidate successor at any level is deleted, we consider
         # the operation completed.
-        break if new.@next[0].deleted || succs[i].@next[0].deleted || del == succs[i]
+        break if new.deleted || succs[i].deleted || del == succs[i]
 
         # prepare next pointer of new node
         new.@next[i] = succs[i]
@@ -191,7 +194,7 @@ module PQueue
 
         # CMB() # TODO: memory barrier
         cur = pred.@next[i] # take one step forward from pred
-        if !h.@next[0].deleted
+        unless h.@next[0].deleted
           i -= 1
           next
         end
@@ -203,10 +206,8 @@ module PQueue
           cur = pred.@next[i]
         end
 
-        # swing head pointer
-        if cas(@head.@next.to_unsafe + i, h, cur)
-          i -= 1
-        end
+        # swing head pointer (in the paper, cur is pred.@next[i], but I think it's the same)
+        i -= 1 if cas(@head.@next.to_unsafe + i, h, cur)
       end
     end
 
@@ -232,18 +233,23 @@ module PQueue
         nxt = x.@next[0]
 
         # tail cannot be deleted
-        return v if nxt == @tail
+        return nil if nxt == @tail
 
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
         newhead = x if newhead.nil? && x.inserting
 
-        x = nxt
-        next if nxt.deleted
+        if x.deleted
+          x = nxt
+          next
+        end
 
-        nxt.deleted = true
-        break unless nxt.@next[0].deleted
+        # new_nxt = x.@next[0]
+        x.deleted = true
+        x = nxt
+
+        break
       end
 
       v = {x.k, x.v}
@@ -292,10 +298,14 @@ module PQueue
 
     def to_a : Array({K, V})
       a = [] of {K, V}
-      x = @head.@next[0]
-      while x != @tail
-        a << {x.k, x.v} unless x.deleted
-        x = x.@next[0]
+      x = @head
+      loop do
+        nxt = x.@next[0]
+
+        break if nxt == @tail
+
+        a << {nxt.k, nxt.v} unless x.deleted
+        x = nxt
       end
       a
     end
