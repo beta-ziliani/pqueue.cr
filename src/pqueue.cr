@@ -18,12 +18,12 @@ module PQueue
       property deleted : Bool = false
       property v : V
 
-      def initialize(@k, @level, @v, @next : Array(Node(K, V)))
+      def initialize(@k, @level, @v, @next : StaticArray(Node(K, V), NUM_LEVELS))
       end
 
       def initialize(@k, @level, @v)
         void = uninitialized Node(K, V)
-        @next = Array(Node(K, V)).new NUM_LEVELS, void
+        @next = StaticArray(Node(K, V), NUM_LEVELS).new void
       end
 
       def to_s(io)
@@ -44,7 +44,7 @@ module PQueue
     # *sentinel_v*: default sentinel value
     def initialize(@max_offset, sentinel_min, sentinel_max, sentinel_v)
       @tail = Node.new sentinel_max, NUM_LEVELS, sentinel_v
-      tails = Array(Node(K, V)).new NUM_LEVELS, @tail
+      tails = StaticArray(Node(K, V), NUM_LEVELS).new @tail
       @tail.@next.fill @tail
       @head = Node.new sentinel_min, NUM_LEVELS, sentinel_v, tails
       @head.inserting = false
@@ -77,7 +77,7 @@ module PQueue
     # | |   | |   | |   | |   | |   | |
     #  0     1     2     4     6     7
     #  d     d     d
-    def locate_preds(k : K, preds : Array(Node(K, V)), succs : Array(Node(K, V))) : Node(K, V)?
+    def locate_preds(k : K, preds : Slice(Node(K, V)), succs : Slice(Node(K, V))) : Node(K, V)?
       d = false
 
       pred = @head
@@ -112,15 +112,15 @@ module PQueue
     # preds[i], n will be spliced in on level i.
     def insert(k : K, v : V) : Nil
       void = uninitialized Node(K, V)
-      preds = Array(Node(K, V)).new NUM_LEVELS, void
-      succs = Array(Node(K, V)).new NUM_LEVELS, void
+      preds = StaticArray(Node(K, V), NUM_LEVELS).new void
+      succs = StaticArray(Node(K, V), NUM_LEVELS).new void
 
       new = Node.new(k, rand(32), v)
 
       continue = true
       while continue
         # lowest level insertion retry loop
-        del = locate_preds k, preds, succs
+        del = locate_preds k, preds.to_slice, succs.to_slice
 
         # return if key already exists, i.e., is present in a non-deleted node
         if (succs[0].k == k && !preds[0].@next[0].deleted && preds[0].@next[0] == succs[0])
@@ -152,7 +152,7 @@ module PQueue
 
         if !cas(preds[i].@next.to_unsafe + i, succs[i], new)
           # failed due to competing insert or restructure
-          del = locate_preds k, preds, succs
+          del = locate_preds k, preds.to_slice, succs.to_slice
           # if new has been deleted, we're done
           break if succs[0] != new
         else
