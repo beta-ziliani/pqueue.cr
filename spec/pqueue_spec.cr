@@ -163,18 +163,13 @@ describe PQueue::PQueue do
 
     del.sort!
     a = pqueue.to_a
-    i = 1
-    j = 0
-    while i < a.size + del.size
-      el = a[j]?
-      if el.nil?
-        raise "#{j} >= #{a.size}"
-      elsif el == {i, i}
-        j += 1
-      else
-        del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
-      end
-      i += 1
+
+    a.sort.should eq a # check if the array is sorted
+    del.size.should eq 400
+    a.size.should eq 4000 - 400
+
+    (1..4000).each do |i|
+      a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
     end
   end
 end
