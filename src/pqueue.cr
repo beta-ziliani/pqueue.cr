@@ -1,8 +1,8 @@
 require "atomic"
 
 module PQueue
-  # or class?
-  struct PQueue(K, V)
+  # or struct?
+  class PQueue(K, V)
     property max_offset : Int32
     property head : Node(K, V)
     property tail : Node(K, V)
@@ -115,8 +115,6 @@ module PQueue
       preds = Array(Node(K, V)).new NUM_LEVELS, void
       succs = Array(Node(K, V)).new NUM_LEVELS, void
 
-      # critical_enter();
-
       new = Node.new(k, rand(32), v)
 
       continue = true
@@ -192,7 +190,8 @@ module PQueue
         # the order of these reads must be maintained
         h = @head.@next[i] # record observed head
 
-        # CMB() # TODO: memory barrier
+        Atomic.fence # CMB() in the C code
+
         cur = pred.@next[i] # take one step forward from pred
         unless h.@next[0].deleted
           i -= 1
@@ -226,8 +225,6 @@ module PQueue
       obs_head = x.@next[0]
 
       loop do
-        offset += 1
-
         # expensive, high probability that this cache line has
         # been modified
         nxt = x.@next[0]
@@ -240,16 +237,14 @@ module PQueue
         # matter.
         newhead = x if newhead.nil? && x.inserting
 
-        if x.deleted
-          x = nxt
-          next
-        end
-
-        # new_nxt = x.@next[0]
+        nxt = x.@next[0]
+        d = x.deleted
         x.deleted = true
+
+        offset += 1
         x = nxt
 
-        break
+        break unless d
       end
 
       v = {x.k, x.v}
