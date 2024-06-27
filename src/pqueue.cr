@@ -210,6 +210,8 @@ module PQueue
       end
     end
 
+    @spin_lock = Crystal::SpinLock.new
+
     # Delete element with smallest key in queue.
     # Try to update the head node's pointers, if offset > max_offset.
     #
@@ -237,9 +239,12 @@ module PQueue
         # matter.
         newhead = x if newhead.nil? && x.inserting
 
-        nxt = x.@next[0]
-        d = x.deleted
-        x.deleted = true
+        d = false
+        @spin_lock.sync do
+          nxt = x.@next[0]
+          d = x.deleted
+          x.deleted = true
+        end
 
         offset += 1
         x = nxt
