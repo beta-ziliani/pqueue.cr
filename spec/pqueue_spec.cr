@@ -128,14 +128,20 @@ describe PQueue::PQueue do
   it "Parallel insertions and deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
 
-    wg = WaitGroup.new 8
-    ch = Channel({Int32, Int32}?).new 400
+    fibers = 16
+    delete_each = 100
+    insert_each = 1000
+    deleted = fibers // 2 * delete_each
+    inserted = fibers // 2 * insert_each
 
-    (0...8).each do |i|
+    wg = WaitGroup.new fibers
+    ch = Channel({Int32, Int32}?).new deleted
+
+    (0...fibers).each do |i|
       if i % 2 == 0
         spawn do
-          (1..1000).each do |j|
-            k = (i//2) * 1000 + j
+          (1..insert_each).each do |j|
+            k = (i//2) * insert_each + j
             pqueue.insert(k, k)
           end
           wg.done
@@ -144,7 +150,7 @@ describe PQueue::PQueue do
         spawn do
           # wait a bit to let the other coroutines insert some elements
           sleep 1.millisecond
-          (0...100).each do
+          (0...delete_each).each do
             t = pqueue.deletemin
             ch.send t
           end
@@ -156,7 +162,7 @@ describe PQueue::PQueue do
     wg.wait
 
     del = [] of {Int32, Int32}
-    (0...400).each do
+    (0...deleted).each do
       t = ch.receive
       del << t if t
     end
@@ -165,10 +171,10 @@ describe PQueue::PQueue do
     a = pqueue.to_a
 
     a.sort.should eq a # check if the array is sorted
-    del.size.should eq 400
-    a.size.should eq 4000 - 400
+    del.size.should eq deleted
+    a.size.should eq inserted - deleted
 
-    (1..4000).each do |i|
+    (1..inserted).each do |i|
       a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
     end
   end
