@@ -9,26 +9,36 @@ module PQueue
 
     NUM_LEVELS = 32
 
+    def is_marked_ref(ref : Pointer)
+      (ref & 1) == 1
+    end
+
+    def get_marked_ref(ref : Pointer)
+      ref | 1
+    end
+
+    def get_unmarked_ref(ref : Pointer)
+      ref & ~1
+    end
+
     class Node(K, V)
       getter k : K
       property level : Int32
       property inserting : Bool = true
 
-      # next node is deleted
-      property deleted : Bool = false
       property v : V
 
-      def initialize(@k, @level, @v, @next : StaticArray(Node(K, V), NUM_LEVELS))
+      def initialize(@k, @level, @v, @next : StaticArray(Pointer(Node(K, V)), NUM_LEVELS))
       end
 
       def initialize(@k, @level, @v)
-        void = uninitialized Node(K, V)
-        @next = StaticArray(Node(K, V), NUM_LEVELS).new void
+        void = Pointer(Node(K, V)).null
+        @next = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
       end
 
       def to_s(io)
         (0...@level).each do |n|
-          if deleted
+          if is_marked_ref(@next[n])
             io.puts "  #{k}[#{k} d] --> #{@next[n].k};"
           else
             io.puts "  #{k} --> #{@next[n].k};"
@@ -44,15 +54,19 @@ module PQueue
     # *sentinel_v*: default sentinel value
     def initialize(@max_offset, sentinel_min, sentinel_max, sentinel_v)
       @tail = Node.new sentinel_max, NUM_LEVELS, sentinel_v
-      tails = StaticArray(Node(K, V), NUM_LEVELS).new @tail
-      @tail.@next.fill @tail
+      tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new pointerof(@tail)
+      @tail.@next.fill pointerof(@tail)
       @head = Node.new sentinel_min, NUM_LEVELS, sentinel_v, tails
       @head.inserting = false
       @tail.inserting = false
     end
 
-    def cas(p : Pointer(A), expected : A, new : A) : Bool forall A
+    def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
       Atomic::Ops.cmpxchg(p, expected, new, :sequentially_consistent, :sequentially_consistent)[1]
+    end
+
+    def fetch_or(p : Pointer(Pointer(A)), value : UInt64) : Pointer(A) forall A
+      Pointer(A).new Atomic::Ops.atomicrmw(LLVM::AtomicRMWBinOp::Or, p.as(Pointer(UInt64)), value, LLVM::AtomicOrdering::SequentiallyConsistent, false)
     end
 
     # Record predecessors and non-deleted successors of key k.  If k is
@@ -77,24 +91,27 @@ module PQueue
     # | |   | |   | |   | |   | |   | |
     #  0     1     2     4     6     7
     #  d     d     d
-    def locate_preds(k : K, preds : Slice(Node(K, V)), succs : Slice(Node(K, V))) : Node(K, V)?
+    def locate_preds(k : K, preds : Slice(Pointer(Node(K, V))), succs : Slice(Pointer(Node(K, V)))) : Pointer(Node(K, V))
       d = false
 
-      pred = @head
+      del = Pointer(Node(K, V)).null
+      pred = pointerof(@head)
       i = NUM_LEVELS - 1
       while (i >= 0)
-        cur = pred.@next[i]
+        cur = pred.value.@next[i]
 
-        d = pred.deleted
+        d = is_marked_ref cur
+        cur = get_unmarked_ref cur
 
-        while (cur.k < k || cur.deleted) || ((i == 0) && d)
+        while (cur.value.k < k || is_marked_ref(cur.value.@next[0])) || ((i == 0) && d)
           # Record bottom level deleted node not having delete flag
           # set, if traversed.
-          del = cur if (i == 0 && d)
+          del = cur if i == 0 && d
 
           pred = cur
-          cur = pred.@next[i]
-          d = pred.deleted
+          cur = pred.value.@next[i]
+          d = is_marked_ref cur
+          cur = get_unmarked_ref cur
         end
         preds[i] = pred
         succs[i] = cur
@@ -111,9 +128,9 @@ module PQueue
     # top. Conditioned on that succs[i] is still the successor of
     # preds[i], n will be spliced in on level i.
     def insert(k : K, v : V) : Nil
-      void = uninitialized Node(K, V)
-      preds = StaticArray(Node(K, V), NUM_LEVELS).new void
-      succs = StaticArray(Node(K, V), NUM_LEVELS).new void
+      void = Pointer(Node(K, V)).null
+      preds = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
+      succs = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
 
       new = Node.new(k, rand(32), v)
 
@@ -123,16 +140,16 @@ module PQueue
         del = locate_preds k, preds.to_slice, succs.to_slice
 
         # return if key already exists, i.e., is present in a non-deleted node
-        if (succs[0].k == k && !preds[0].@next[0].deleted && preds[0].@next[0] == succs[0])
+        if (succs[0].value.k == k && !is_marked_ref(preds[0].value.@next[0]) && preds[0].value.@next[0] == succs[0])
           new.inserting = false
-          succs[0].v = v # update value
+          succs[0].value.v = v # update value
           return
         end
 
         new.@next[0] = succs[0]
 
         # The node is logically inserted once it is present at the bottom level.
-        continue = !cas(preds[0].@next.to_unsafe, succs[0], new)
+        continue = !cas(preds[0].value.@next.to_unsafe, succs[0], Box.box(new).as(Pointer(Node(K, V))))
         # either succ has been deleted (modifying preds[0]),
         # or another insert has succeeded or preds[0] is head,
         # and a restructure operation has updated it
@@ -145,12 +162,12 @@ module PQueue
         # only new is deleted as well, but this we can't tell) If a
         # candidate successor at any level is deleted, we consider
         # the operation completed.
-        break if new.deleted || succs[i].deleted || del == succs[i]
+        break if is_marked_ref(new.@next[0]) || is_marked_ref(succs[i].value.@next[0]) || del == succs[i]
 
         # prepare next pointer of new node
         new.@next[i] = succs[i]
 
-        if !cas(preds[i].@next.to_unsafe + i, succs[i], new)
+        if !cas(preds[i].value.@next.to_unsafe + i, succs[i], Box.box(new).as(Pointer(Node(K, V))))
           # failed due to competing insert or restructure
           del = locate_preds k, preds.to_slice, succs.to_slice
           # if new has been deleted, we're done
@@ -183,26 +200,26 @@ module PQueue
     # | |   | |   | |   | |   | |
     #  d     d
     def restructure
-      pred = @head
+      pred = pointerof(@head)
       i = NUM_LEVELS - 1
 
       while i > 0
         # the order of these reads must be maintained
         h = @head.@next[i] # record observed head
 
-        Atomic.fence # CMB() in the C code
+        # Atomic.fence # CMB() in the C code
 
-        cur = pred.@next[i] # take one step forward from pred
-        unless h.@next[0].deleted
+        cur = pred.value.@next[i] # take one step forward from pred
+        unless is_marked_ref(h.value.@next[0])
           i -= 1
           next
         end
 
         # traverse level until non-marked node is found
         # pred will always have its delete flag set
-        while cur.@next[0].deleted
+        while is_marked_ref(cur.value.@next[0])
           pred = cur
-          cur = pred.@next[i]
+          cur = pred.value.@next[i]
         end
 
         # swing head pointer (in the paper, cur is pred.@next[i], but I think it's the same)
@@ -210,49 +227,44 @@ module PQueue
       end
     end
 
-    @spin_lock = Crystal::SpinLock.new
-
     # Delete element with smallest key in queue.
     # Try to update the head node's pointers, if offset > max_offset.
     #
     # Traverse level 0 next pointers until one is found that does
     # not have the delete bit set.
     def deletemin : {K, V}?
-      x = @head
+      x = pointerof(@head)
       offset = 0
       lvl = 0
       v = nil
       newhead = nil
 
-      obs_head = x.@next[0]
+      obs_head = x.value.@next[0]
 
       loop do
         # expensive, high probability that this cache line has
         # been modified
-        nxt = x.@next[0]
+        nxt = x.value.@next[0]
 
         # tail cannot be deleted
-        return nil if nxt == @tail
+        return nil if get_unmarked_ref(nxt) == @tail
 
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
-        newhead = x if newhead.nil? && x.inserting
+        newhead = x if newhead.nil? && x.value.inserting
 
-        d = false
-        @spin_lock.sync do
-          nxt = x.@next[0]
-          d = x.deleted
-          x.deleted = true
-        end
+        next if is_marked_ref(nxt)
+
+        nxt = fetch_or(x.value.@next.to_unsafe, 1)
 
         offset += 1
-        x = nxt
+        x = get_unmarked_ref nxt
 
-        break unless d
+        break unless is_marked_ref(nxt)
       end
 
-      v = {x.k, x.v}
+      v = {x.value.k, x.value.v}
 
       # if the offset is big enough, try to update the head node and
       # perform memory reclamation
@@ -268,7 +280,7 @@ module PQueue
 
       # try to swing the lowest level head pointer to point to newhead,
       # which is deleted
-      if cas(@head.@next.to_unsafe, obs_head, newhead)
+      if cas(@head.@next.to_unsafe, obs_head, get_marked_ref(newhead))
         # Update higher level pointers.
         restructure
 
@@ -276,9 +288,9 @@ module PQueue
         # between the observed head (obs_head) and the new bottom
         # level head pointed node (newhead) are guaranteed to be
         # non-live. Mark them for recycling.
-        cur = obs_head
-        while cur != newhead
-          nxt = cur.@next[0]
+        cur = get_unmarked_ref obs_head
+        while cur != get_unmarked_ref newhead
+          nxt = get_unmarked_ref cur.value.@next[0]
           cur = nxt
         end
       end
@@ -286,15 +298,15 @@ module PQueue
       v
     end
 
-    def to_s(io)
-      io.puts "graph LR"
+    # def to_s(io)
+    #   io.puts "graph LR"
 
-      x = @head
-      while x != @tail
-        x.to_s(io)
-        x = x.@next[0]
-      end
-    end
+    #   x = @head
+    #   while x != @tail
+    #     x.to_s(io)
+    #     x = x.@next[0]
+    #   end
+    # end
 
     def to_a : Array({K, V})
       a = [] of {K, V}
@@ -302,12 +314,22 @@ module PQueue
       loop do
         nxt = x.@next[0]
 
-        break if nxt == @tail
+        break if get_unmarked_ref(nxt) == @tail
 
-        a << {nxt.k, nxt.v} unless x.deleted
-        x = nxt
+        a << {nxt.value.k, nxt.value.v} unless is_marked_ref(x.@next[0])
+        x = get_unmarked_ref(nxt).value
       end
       a
     end
+  end
+end
+
+struct Pointer(T)
+  def |(other : Int32) : Pointer(T)
+    Pointer(T).new(address | other)
+  end
+
+  def &(other : Int32) : Pointer(T)
+    Pointer(T).new(address & other)
   end
 end
