@@ -178,4 +178,16 @@ describe PQueue::PQueue do
       a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
     end
   end
+
+  it "updates a value" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.insert(2, 2)
+    pqueue.insert(1, 1)
+    pqueue.insert(3, 3)
+
+    pqueue.insert(2, 10)
+
+    pqueue.to_a.should eq [{1, 1}, {2, 10}, {3, 3}]
+  end
 end

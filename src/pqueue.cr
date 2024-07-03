@@ -139,7 +139,7 @@ module PQueue
       del
     end
 
-    # Insert a new node n with key k and value v.
+    # Insert a new node n with key k and value v. If the key exists, it's value is updated.
     def insert(k : K, v : V) : Nil
       # The node will not be inserted if another node with key k is already
       # present in the list.
@@ -203,6 +203,11 @@ module PQueue
       # new is always something at this point (the commentted out if new)
       # this flag must be reset *after* all CAS have completed
       new.inserting = false # if new
+    end
+
+    # Same as `insert`, but with the subscript operator.
+    def []=(k : K, v : V)
+      insert k, v
     end
 
     # Update the head node's pointers from level 1 and up. Will locate
