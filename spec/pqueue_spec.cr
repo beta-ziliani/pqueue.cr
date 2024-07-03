@@ -161,18 +161,20 @@ describe PQueue::PQueue do
 
     wg.wait
 
-    del = [] of {Int32, Int32}
+    del = [] of {Int32, Int32}?
     (0...deleted).each do
       t = ch.receive
-      del << t if t
+      del << t # if t
     end
 
-    del.sort!
+    del.sort! do |a, b|
+      a.nil? ? -1 : b.nil? ? 1 : a[0] <=> b[0]
+    end
     a = pqueue.to_a
 
     a.sort.should eq a # check if the array is sorted
     del.size.should eq deleted
-    a.size.should eq inserted - deleted
+    a.size.should eq inserted - (del.reject &.nil?).size
 
     (1..inserted).each do |i|
       a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
