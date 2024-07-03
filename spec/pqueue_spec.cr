@@ -3,7 +3,7 @@ require "wait_group"
 
 describe PQueue::PQueue do
   it "correctly performs insertions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
     max = 8000
     (1..max).each do |i|
       pqueue.insert(i, i)
@@ -17,14 +17,14 @@ describe PQueue::PQueue do
   end
 
   it "correctly performs 1 deletion" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     pqueue.insert(1, 1)
     pqueue.deletemin.should eq({1, 1})
   end
 
   it "correctly performs 2 deletions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     pqueue.insert(1, 1)
     pqueue.insert(2, 2)
@@ -33,7 +33,7 @@ describe PQueue::PQueue do
   end
 
   it "correctly performs multiple deletions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(0, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     (1..8000).each do |i|
       pqueue.insert(i, i)
@@ -55,7 +55,7 @@ describe PQueue::PQueue do
   end
 
   it "correctly performs parallel insertions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     wg = WaitGroup.new 8
 
@@ -88,7 +88,7 @@ describe PQueue::PQueue do
   end
 
   it "correctly performs parallel deletions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     (1..8000).each do |i|
       pqueue.insert(i, i)
@@ -126,7 +126,7 @@ describe PQueue::PQueue do
   end
 
   it "Parallel insertions and deletions" do
-    pqueue = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     fibers = 16
     delete_each = 100

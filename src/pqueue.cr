@@ -42,11 +42,13 @@ module PQueue
     # *sentinel_min*: minimum key value
     # *sentinel_max*: maximum key value
     # *sentinel_v*: default sentinel value
-    def initialize(@max_offset, sentinel_min, sentinel_max, sentinel_v)
-      @tail = Node.new sentinel_max, NUM_LEVELS, sentinel_v
+    def initialize(@max_offset)
+      sentinel_k = uninitialized K
+      sentinel_v = uninitialized V
+      @tail = Node.new sentinel_k, NUM_LEVELS, sentinel_v
       p_tail = Pointer(Node(K, V)).new(@tail.object_id)
       tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new p_tail
-      @head = Node.new sentinel_min, NUM_LEVELS, sentinel_v, tails
+      @head = Node.new sentinel_k, NUM_LEVELS, sentinel_v, tails
       @head.inserting = false
       @tail.inserting = false
     end
@@ -87,11 +89,11 @@ module PQueue
     # | |   | |   | |   | |   | |   | |
     #  0     1     2     4     6     7
     #  d     d     d
-    def locate_preds(k : K, preds : Slice(Pointer(Node(K, V))), succs : Slice(Pointer(Node(K, V)))) : Pointer(Node(K, V))
+    private def locate_preds(k : K, preds : Slice(Pointer(Node(K, V))), succs : Slice(Pointer(Node(K, V)))) : Pointer(Node(K, V))
       d = false
 
       del = Pointer(Node(K, V)).null
-      pred = Pointer(Node(K, V)).new(@head.object_id)
+      pred = Pointer(Node(K, V)).new @head.object_id
       i = NUM_LEVELS - 1
 
       while (i >= 0)
@@ -100,7 +102,8 @@ module PQueue
         d = is_marked_ref cur
         cur = get_unmarked_ref cur
 
-        while (cur.as(Node(K, V)).k < k || is_marked_ref(cur.as(Node(K, V)).@next[0])) || ((i == 0) && d)
+        while (c = cur.as(Node(K, V))) != @tail &&
+              ((c.k < k || is_marked_ref(cur.as(Node(K, V)).@next[0])) || ((i == 0) && d))
           # Record bottom level deleted node not having delete flag
           # set, if traversed.
           del = cur if i == 0 && d
@@ -110,6 +113,7 @@ module PQueue
           d = is_marked_ref cur
           cur = get_unmarked_ref cur
         end
+
         preds[i] = pred
         succs[i] = cur
         i -= 1
@@ -137,7 +141,10 @@ module PQueue
         del = locate_preds k, preds.to_slice, succs.to_slice
 
         # return if key already exists, i.e., is present in a non-deleted node
-        if (succs[0].as(Node(K, V)).k == k && !is_marked_ref(preds[0].as(Node(K, V)).@next[0]) && preds[0].as(Node(K, V)).@next[0] == succs[0])
+        if (n = succs[0].as(Node(K, V))) != @tail &&
+           n.as(Node(K, V)).k == k &&
+           !is_marked_ref(preds[0].as(Node(K, V)).@next[0]) &&
+           preds[0].as(Node(K, V)).@next[0] == succs[0]
           new.inserting = false
           succs[0].as(Node(K, V)).v = v # update value
           return
