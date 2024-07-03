@@ -7,7 +7,7 @@ module PQueue
     property head : Node(K, V)
     property tail : Node(K, V)
 
-    NUM_LEVELS = 3
+    NUM_LEVELS = 32
 
     def is_marked_ref(ref : Pointer)
       (ref & 1).address == 1
@@ -35,21 +35,6 @@ module PQueue
         void = Pointer(Node(K, V)).null
         @next = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
       end
-
-      def to_s(io)
-        (0...@level).each do |n|
-          if is_marked_ref(@next[n])
-            io.puts "  #{k}[#{k} d] --> #{@next[n].k};"
-          else
-            io.puts "  #{k} --> #{@next[n].k};"
-          end
-        end
-      end
-
-      def inspect
-        inserting = @inserting ? "inserting " : ""
-        "#{object_id.to_s(16)} {#{k}, #{v}} #{inserting}at level #{level} [#{@next.map { |p| p.address.to_s(16) }.join(", ")}]"
-      end
     end
 
     # Init structure, setup sentinel head and tail nodes.
@@ -61,7 +46,6 @@ module PQueue
       @tail = Node.new sentinel_max, NUM_LEVELS, sentinel_v
       p_tail = Pointer(Node(K, V)).new(@tail.object_id)
       tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new p_tail
-      #      @tail.@next.fill pointerof(@tail)
       @head = Node.new sentinel_min, NUM_LEVELS, sentinel_v, tails
       @head.inserting = false
       @tail.inserting = false
@@ -212,7 +196,7 @@ module PQueue
     # | |   | |    _    | |   | |
     # | |   | |   | |   | |   | |
     #  d     d
-    def restructure
+    private def restructure
       pred = Pointer(Node(K, V)).new(@head.object_id)
       i = NUM_LEVELS - 1
 
@@ -241,11 +225,11 @@ module PQueue
     end
 
     # Delete element with smallest key in queue.
-    # Try to update the head node's pointers, if offset > max_offset.
-    #
-    # Traverse level 0 next pointers until one is found that does
-    # not have the delete bit set.
     def deletemin : {K, V}?
+      # Try to update the head node's pointers, if offset > max_offset.
+      #
+      # Traverse level 0 next pointers until one is found that does
+      # not have the delete bit set.
       x = Pointer(Node(K, V)).new(@head.object_id)
       offset = 0
       lvl = 0
@@ -262,22 +246,19 @@ module PQueue
         # tail cannot be deleted
         return nil if get_unmarked_ref(nxt).as(Node(K, V)) == @tail
 
+        offset += 1
+
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
         newhead = x if newhead.nil? && x.as(Node(K, V)).inserting
 
-        next if is_marked_ref(nxt)
-
-        puts "nxt before: #{nxt}"
-        puts "@next before: #{x.as(Node(K, V)).@next[0]}"
+        if is_marked_ref(nxt)
+          x = get_unmarked_ref nxt
+          next
+        end
 
         nxt = fetch_or(x.as(Node(K, V)).@next.to_unsafe, 1)
-
-        puts "nxt after: #{nxt}"
-        puts "@next after: #{x.as(Node(K, V)).@next[0]}"
-
-        offset += 1
         x = get_unmarked_ref nxt
 
         break unless is_marked_ref(nxt)
@@ -317,16 +298,6 @@ module PQueue
       v
     end
 
-    # def to_s(io)
-    #   io.puts "graph LR"
-
-    #   x = @head
-    #   while x != @tail
-    #     x.to_s(io)
-    #     x = x.@next[0]
-    #   end
-    # end
-
     def to_a : Array({K, V})
       a = [] of {K, V}
       x : Node(K, V) = @head
@@ -342,12 +313,6 @@ module PQueue
       end
       a
     end
-
-    def inspect
-      s = @head.inspect + "\n"
-      s += @tail.inspect
-      s
-    end
   end
 end
 
@@ -360,27 +325,3 @@ struct Pointer(T)
     Pointer(T).new(address & other)
   end
 end
-
-q = PQueue::PQueue(Int32, Int32).new(10, 0, Int32::MAX, 0)
-
-puts q.to_a
-
-q.insert 1, 1
-
-puts q.inspect
-
-puts q.to_a
-
-q.insert 2, 2
-
-puts q.to_a
-
-q.deletemin
-
-debugger
-
-puts q.to_a
-
-q.deletemin
-
-puts q.to_a
