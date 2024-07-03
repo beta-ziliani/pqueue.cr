@@ -1,29 +1,46 @@
 require "atomic"
 
 module PQueue
-  # or struct?
+  # Priority queue implemented as a lock-free skiplist.
+  #
+  # The implementation is based on the accompanying code from the paper
+  # "A Skiplist-Based Concurrent Priority Queue with Minimal Memory Contention"
+  # by Jonatan Lindén and Bengt Jonsson
   class PQueue(K, V)
-    property max_offset : Int32
-    property head : Node(K, V)
-    property tail : Node(K, V)
+    # Maybe a struct?
 
+    # The number of deletions before a restructure operation is attempted.
+    property max_offset : Int32
+
+    @head : Node(K, V)
+    @tail : Node(K, V)
+
+    # Number of levels in the skiplist.
     NUM_LEVELS = 32
 
-    def is_marked_ref(ref : Pointer)
+    # Using the same name as in the origincal code: `is_marked_ref` means
+    # that the node the pointer is pointing to has been logically deleted.
+    private def is_marked_ref(ref : Pointer)
       (ref & 1).address == 1
     end
 
-    def get_marked_ref(ref : Pointer)
+    # Mark a reference to a node as logically deleted.
+    private def get_marked_ref(ref : Pointer)
       ref | 1
     end
 
-    def get_unmarked_ref(ref : Pointer)
+    # Get the reference to a node without the logical delete flag set.
+    private def get_unmarked_ref(ref : Pointer)
       ref & ~1
     end
 
-    class Node(K, V)
+    private class Node(K, V)
       getter k : K
+
+      # The level of the node in the skiplist.
       property level : Int32
+
+      # If the node is in the process of being inserted.
       property inserting : Bool = true
 
       property v : V
@@ -37,11 +54,7 @@ module PQueue
       end
     end
 
-    # Init structure, setup sentinel head and tail nodes.
     # *max_offset*: number of deletions before restructure is attempted
-    # *sentinel_min*: minimum key value
-    # *sentinel_max*: maximum key value
-    # *sentinel_v*: default sentinel value
     def initialize(@max_offset)
       sentinel_k = uninitialized K
       sentinel_v = uninitialized V
@@ -53,14 +66,17 @@ module PQueue
       @tail.inserting = false
     end
 
-    def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
+    private def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
+      # TODO: See if we can use a more relaxed model
       Atomic::Ops.cmpxchg(p, expected, new, :sequentially_consistent, :sequentially_consistent)[1]
     end
 
-    def fetch_or(p : Pointer(Pointer(A)), value : UInt64) : Pointer(A) forall A
+    private def fetch_or(p : Pointer(Pointer(A)), value : UInt64) : Pointer(A) forall A
       {% unless flag?(:interpreted) %}
+        # TODO: See if we can use a more relaxed model
         Pointer(A).new Atomic::Ops.atomicrmw(LLVM::AtomicRMWBinOp::Or, p.as(Pointer(UInt64)), value, LLVM::AtomicOrdering::SequentiallyConsistent, false)
       {% else %}
+        # Not yet implemented, we need to emulate it
         old_p = p.value
         p.value = Pointer(A).new(p.value.address | value)
         old_p.as(Pointer(A))
@@ -102,6 +118,8 @@ module PQueue
         d = is_marked_ref cur
         cur = get_unmarked_ref cur
 
+        # The original code requires sentinel nodes to have bottom and top elements.
+        # Instead, we use `uninitialized`, meaning we can't acccess that field and need to guard it.
         while (c = cur.as(Node(K, V))) != @tail &&
               ((c.k < k || is_marked_ref(cur.as(Node(K, V)).@next[0])) || ((i == 0) && d))
           # Record bottom level deleted node not having delete flag
@@ -122,13 +140,13 @@ module PQueue
     end
 
     # Insert a new node n with key k and value v.
-    # The node will not be inserted if another node with key k is already
-    # present in the list.
-    # The predecessors, preds, and successors, succs, at all levels are
-    # recorded, after which the node n is inserted from bottom to
-    # top. Conditioned on that succs[i] is still the successor of
-    # preds[i], n will be spliced in on level i.
     def insert(k : K, v : V) : Nil
+      # The node will not be inserted if another node with key k is already
+      # present in the list.
+      # The predecessors, preds, and successors, succs, at all levels are
+      # recorded, after which the node n is inserted from bottom to
+      # top. Conditioned on that succs[i] is still the successor of
+      # preds[i], n will be spliced in on level i.
       void = Pointer(Node(K, V)).null
       preds = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
       succs = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
@@ -231,7 +249,7 @@ module PQueue
       end
     end
 
-    # Delete element with smallest key in queue.
+    # Delete and returns the element with smallest key in queue.
     def deletemin : {K, V}?
       # Try to update the head node's pointers, if offset > max_offset.
       #
@@ -305,6 +323,7 @@ module PQueue
       v
     end
 
+    # Return the elements in the queue as an array.
     def to_a : Array({K, V})
       a = [] of {K, V}
       x : Node(K, V) = @head
@@ -320,9 +339,28 @@ module PQueue
       end
       a
     end
+
+    def inspect(io : IO) : Nil
+      x : Node(K, V) = @head
+
+      io.puts "HEAD #{x.object_id.to_s(16)} [#{x.@next.map(&.address.to_s(16)).join(",")}]"
+      loop do
+        nxt = x.@next[0]
+
+        nxt = get_unmarked_ref(nxt).as(Node(K, V))
+        break if nxt == @tail
+
+        deleted = is_marked_ref(x.@next[0]) ? "(d) " : ""
+        io.puts "  #{nxt.k} #{nxt.v} #{deleted} [#{nxt.@next.map(&.address.to_s(16)).join(",")}]"
+        x = nxt
+      end
+
+      io.puts "TAIL #{@tail.object_id.to_s(16)}"
+    end
   end
 end
 
+# Additional functions required to perform operations on pointers
 struct Pointer(T)
   def |(other : Int32) : Pointer(T)
     Pointer(T).new(address | other)
