@@ -192,4 +192,14 @@ describe PQueue::PQueue do
 
     pqueue.to_a.should eq [{1, 1}, {2, 10}, {3, 3}]
   end
+
+  it "is an enumerable" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.insert(2, 2)
+    pqueue.insert(1, 1)
+    pqueue.insert(3, 3)
+
+    pqueue.map { |v| {v[0], v[1] + 1} }.should eq [{1, 2}, {2, 3}, {3, 4}]
+  end
 end

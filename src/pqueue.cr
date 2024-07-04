@@ -9,6 +9,8 @@ module PQueue
   class PQueue(K, V)
     # Maybe a struct?
 
+    include Enumerable({K, V})
+
     # The number of deletions before a restructure operation is attempted.
     property max_offset : Int32
 
@@ -222,7 +224,7 @@ module PQueue
     #              |     |     |
     #              |     |     v
     #  _           |     v     _
-    # | |    _     v     _	   | |
+    # | |    _     v     _	  | |
     # | |   | |    _    | |   | |
     # | |   | |   | |   | |   | |
     #  d     d
@@ -343,6 +345,13 @@ module PQueue
         x = nxt
       end
       a
+    end
+
+    # NOTE: It uses `to_a` to construct an array first.
+    def each(& : {K, V} ->) : Nil
+      to_a.each do |t|
+        yield t
+      end
     end
 
     def inspect(io : IO) : Nil
