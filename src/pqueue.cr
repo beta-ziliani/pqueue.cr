@@ -69,8 +69,7 @@ module PQueue
     end
 
     private def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
-      # TODO: See if we can use a more relaxed model
-      Atomic::Ops.cmpxchg(p, expected, new, :sequentially_consistent, :sequentially_consistent)[1]
+      Atomic::Ops.cmpxchg(p, expected, new, :acquire_release, :acquire)[1]
     end
 
     private def fetch_or(p : Pointer(Pointer(A)), value : UInt64) : Pointer(A) forall A
