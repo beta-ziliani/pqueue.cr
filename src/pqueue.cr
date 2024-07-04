@@ -61,7 +61,7 @@ module PQueue
       sentinel_k = uninitialized K
       sentinel_v = uninitialized V
       @tail = Node.new sentinel_k, NUM_LEVELS, sentinel_v
-      p_tail = Pointer(Node(K, V)).new(@tail.object_id)
+      p_tail = @tail.as(Pointer(Node(K, V)))
       tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new p_tail
       @head = Node.new sentinel_k, NUM_LEVELS, sentinel_v, tails
       @head.inserting = false
@@ -111,7 +111,7 @@ module PQueue
       d = false
 
       del = Pointer(Node(K, V)).null
-      pred = Pointer(Node(K, V)).new @head.object_id
+      pred = @head.as(Pointer(Node(K, V)))
       i = NUM_LEVELS - 1
 
       while (i >= 0)
@@ -228,7 +228,7 @@ module PQueue
     # | |   | |   | |   | |   | |
     #  d     d
     private def restructure
-      pred = Pointer(Node(K, V)).new(@head.object_id)
+      pred = @head.as(Pointer(Node(K, V)))
       i = NUM_LEVELS - 1
 
       while i > 0
@@ -261,7 +261,7 @@ module PQueue
       #
       # Traverse level 0 next pointers until one is found that does
       # not have the delete bit set.
-      x = Pointer(Node(K, V)).new(@head.object_id)
+      x = @head.as(Pointer(Node(K, V)))
       offset = 0
       lvl = 0
       v = nil
@@ -356,7 +356,7 @@ module PQueue
     def inspect(io : IO) : Nil
       x : Node(K, V) = @head
 
-      io.puts "HEAD #{x.object_id.to_s(16)} [#{x.@next.map(&.address.to_s(16)).join(",")}]"
+      io.puts "HEAD #{x.as(Pointer(Node(K, V))).address.to_s(16)} [#{x.@next.map(&.address.to_s(16)).join(",")}]"
       loop do
         nxt = x.@next[0]
 
@@ -368,7 +368,7 @@ module PQueue
         x = nxt
       end
 
-      io.puts "TAIL #{@tail.object_id.to_s(16)}"
+      io.puts "TAIL #{@tail.as(Pointer(Node(K, V))).address.to_s(16)}"
     end
   end
 end
