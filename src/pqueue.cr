@@ -118,21 +118,21 @@ module PQueue
       i = NUM_LEVELS - 1
 
       while (i >= 0)
-        cur = pred.as(Node(K, V)).@next[i]
+        cur = pred.cast.@next[i]
 
         d = is_marked_ref cur
         cur = get_unmarked_ref cur
 
         # The original code requires sentinel nodes to have bottom and top elements.
         # Instead, we use `uninitialized`, meaning we can't acccess that field and need to guard it.
-        while (c = cur.as(Node(K, V))) != @tail &&
-              ((c.k < k || is_marked_ref(cur.as(Node(K, V)).@next[0])) || ((i == 0) && d))
+        while (c = cur.cast) != @tail &&
+              ((c.k < k || is_marked_ref(cur.cast.@next[0])) || ((i == 0) && d))
           # Record bottom level deleted node not having delete flag
           # set, if traversed.
           del = cur if i == 0 && d
 
           pred = cur
-          cur = pred.as(Node(K, V)).@next[i]
+          cur = pred.cast.@next[i]
           d = is_marked_ref cur
           cur = get_unmarked_ref cur
         end
@@ -164,10 +164,10 @@ module PQueue
         del = locate_preds k, preds.to_slice, succs.to_slice
 
         # return if key already exists, i.e., is present in a non-deleted node
-        if (n = succs[0].as(Node(K, V))) != @tail &&
+        if (n = succs[0].cast) != @tail &&
            n.k == k &&
-           !is_marked_ref(preds[0].as(Node(K, V)).@next[0]) &&
-           preds[0].as(Node(K, V)).@next[0] == succs[0]
+           !is_marked_ref(preds[0].cast.@next[0]) &&
+           preds[0].cast.@next[0] == succs[0]
           n.v = v # update value
           return
         end
@@ -175,7 +175,7 @@ module PQueue
         new.@next[0] = succs[0]
 
         # The node is logically inserted once it is present at the bottom level.
-        continue = !cas(preds[0].as(Node(K, V)).@next.to_unsafe, succs[0], Box.box(new).as(Pointer(Node(K, V))))
+        continue = !cas(preds[0].cast.@next.to_unsafe, succs[0], Box.box(new).as(Pointer(Node(K, V))))
         # either succ has been deleted (modifying preds[0]),
         # or another insert has succeeded or preds[0] is head,
         # and a restructure operation has updated it
@@ -188,12 +188,12 @@ module PQueue
         # only new is deleted as well, but this we can't tell) If a
         # candidate successor at any level is deleted, we consider
         # the operation completed.
-        break if is_marked_ref(new.@next[0]) || is_marked_ref(succs[i].as(Node(K, V)).@next[0]) || del == succs[i]
+        break if is_marked_ref(new.@next[0]) || is_marked_ref(succs[i].cast.@next[0]) || del == succs[i]
 
         # prepare next pointer of new node
         new.@next[i] = succs[i]
 
-        if !cas(preds[i].as(Node(K, V)).@next.to_unsafe + i, succs[i], Box.box(new).as(Pointer(Node(K, V))))
+        if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], Box.box(new).as(Pointer(Node(K, V))))
           # failed due to competing insert or restructure
           del = locate_preds k, preds.to_slice, succs.to_slice
           # if new has been deleted, we're done
@@ -240,17 +240,17 @@ module PQueue
 
         {% unless flag?(:interpreted) %} Atomic.fence {% end %} # CMB() in the C code
 
-        cur = pred.as(Node(K, V)).@next[i] # take one step forward from pred
-        unless is_marked_ref(h.as(Node(K, V)).@next[0])
+        cur = pred.cast.@next[i] # take one step forward from pred
+        unless is_marked_ref(h.cast.@next[0])
           i -= 1
           next
         end
 
         # traverse level until non-marked node is found
         # pred will always have its delete flag set
-        while is_marked_ref(cur.as(Node(K, V)).@next[0])
+        while is_marked_ref(cur.cast.@next[0])
           pred = cur
-          cur = pred.as(Node(K, V)).@next[i]
+          cur = pred.cast.@next[i]
         end
 
         # swing head pointer (in the paper, cur is pred.@next[i], but I think it's the same)
@@ -270,35 +270,35 @@ module PQueue
       v = nil
       newhead = nil
 
-      obs_head = x.as(Node(K, V)).@next[0]
+      obs_head = x.cast.@next[0]
 
       loop do
         # expensive, high probability that this cache line has
         # been modified
-        nxt = x.as(Node(K, V)).@next[0]
+        nxt = x.cast.@next[0]
 
         # tail cannot be deleted
-        return nil if get_unmarked_ref(nxt).as(Node(K, V)) == @tail
+        return nil if get_unmarked_ref(nxt).cast == @tail
 
         offset += 1
 
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
-        newhead = x if newhead.nil? && x.as(Node(K, V)).inserting
+        newhead = x if newhead.nil? && x.cast.inserting
 
         if is_marked_ref(nxt)
           x = get_unmarked_ref nxt
           next
         end
 
-        nxt = fetch_or(x.as(Node(K, V)).@next.to_unsafe, 1)
+        nxt = fetch_or(x.cast.@next.to_unsafe, 1)
         x = get_unmarked_ref nxt
 
         break unless is_marked_ref(nxt)
       end
 
-      v = {x.as(Node(K, V)).k, x.as(Node(K, V)).v}
+      v = {x.cast.k, x.cast.v}
 
       # if the offset is big enough, try to update the head node and
       # perform memory reclamation
@@ -324,7 +324,7 @@ module PQueue
         # non-live. Mark them for recycling.
         cur = get_unmarked_ref obs_head
         while cur != get_unmarked_ref newhead
-          nxt = get_unmarked_ref cur.as(Node(K, V)).@next[0]
+          nxt = get_unmarked_ref cur.cast.@next[0]
           cur = nxt
         end
       end
@@ -340,7 +340,7 @@ module PQueue
       loop do
         nxt = x.@next[0]
 
-        nxt = get_unmarked_ref(nxt).as(Node(K, V))
+        nxt = get_unmarked_ref(nxt).cast
         break if nxt == @tail
 
         a << {nxt.k, nxt.v} unless is_marked_ref(x.@next[0])
@@ -363,7 +363,7 @@ module PQueue
       loop do
         nxt = x.@next[0]
 
-        nxt = get_unmarked_ref(nxt).as(Node(K, V))
+        nxt = get_unmarked_ref(nxt).cast
         break if nxt == @tail
 
         deleted = is_marked_ref(x.@next[0]) ? "(d) " : ""
@@ -384,5 +384,9 @@ struct Pointer(T)
 
   def &(other : Int32) : Pointer(T)
     Pointer(T).new(address & other)
+  end
+
+  def cast : T
+    as(T)
   end
 end
