@@ -7,7 +7,7 @@ module PQueue
   # "A Skiplist-Based Concurrent Priority Queue with Minimal Memory Contention"
   # by Jonatan Lindén and Bengt Jonsson
   class PQueue(K, V)
-    # Maybe a struct?
+    # TODO: class or struct?
 
     include Enumerable({K, V})
 
@@ -162,11 +162,10 @@ module PQueue
 
         # return if key already exists, i.e., is present in a non-deleted node
         if (n = succs[0].as(Node(K, V))) != @tail &&
-           n.as(Node(K, V)).k == k &&
+           n.k == k &&
            !is_marked_ref(preds[0].as(Node(K, V)).@next[0]) &&
            preds[0].as(Node(K, V)).@next[0] == succs[0]
-          new.inserting = false
-          succs[0].as(Node(K, V)).v = v # update value
+          n.v = v # update value
           return
         end
 
