@@ -20,7 +20,7 @@ describe PQueue::PQueue do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     pqueue.insert(1, 1)
-    pqueue.deletemin.should eq({1, 1})
+    pqueue.delete_min.should eq({1, 1})
   end
 
   it "correctly performs 2 deletions" do
@@ -28,8 +28,8 @@ describe PQueue::PQueue do
 
     pqueue.insert(1, 1)
     pqueue.insert(2, 2)
-    pqueue.deletemin.should eq({1, 1})
-    pqueue.deletemin.should eq({2, 2})
+    pqueue.delete_min.should eq({1, 1})
+    pqueue.delete_min.should eq({2, 2})
   end
 
   it "correctly performs multiple deletions" do
@@ -40,7 +40,7 @@ describe PQueue::PQueue do
     end
 
     (1..7200).each do |i|
-      pqueue.deletemin.should eq({i, i})
+      pqueue.delete_min.should eq({i, i})
     end
 
     a = pqueue.to_a
@@ -102,7 +102,7 @@ describe PQueue::PQueue do
     (0...8).each do
       spawn do
         (1..900).each do
-          v = pqueue.deletemin
+          v = pqueue.delete_min
           v.should_not be_nil
         end
         wg.done
@@ -151,7 +151,7 @@ describe PQueue::PQueue do
           # wait a bit to let the other coroutines insert some elements
           sleep 1.millisecond
           (0...delete_each).each do
-            t = pqueue.deletemin
+            t = pqueue.delete_min
             ch.send t
           end
           wg.done

@@ -257,7 +257,7 @@ module PQueue
     end
 
     # Delete and returns the element with smallest key in queue.
-    def deletemin : {K, V}?
+    def delete_min : {K, V}?
       # Try to update the head node's pointers, if offset > max_offset.
       #
       # Traverse level 0 next pointers until one is found that does
