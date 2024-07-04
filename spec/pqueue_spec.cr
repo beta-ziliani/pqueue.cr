@@ -2,7 +2,7 @@ require "./spec_helper"
 require "wait_group"
 
 describe PQueue::PQueue do
-  it "correctly performs insertions" do
+  it "inserts values" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
     max = 8000
     (1..max).each do |i|
@@ -16,23 +16,48 @@ describe PQueue::PQueue do
     end
   end
 
-  it "correctly performs 1 deletion" do
+  it "updates a value" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.insert(2, 2)
+    pqueue.insert(1, 1)
+    pqueue.insert(3, 3)
+
+    pqueue.insert(2, 10)
+
+    pqueue.to_a.should eq [{1, 1}, {2, 10}, {3, 3}]
+  end
+
+  it "is an enumerable" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.insert(2, 2)
+    pqueue.insert(1, 1)
+    pqueue.insert(3, 3)
+
+    pqueue.map { |v| {v[0], v[1] + 1} }.should eq [{1, 2}, {2, 3}, {3, 4}]
+  end
+
+  it "deletes the min" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     pqueue.insert(1, 1)
     pqueue.delete_min.should eq({1, 1})
+    pqueue.to_a.should eq([] of {Int32, Int32})
   end
 
-  it "correctly performs 2 deletions" do
+  it "deletes two times" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     pqueue.insert(1, 1)
     pqueue.insert(2, 2)
     pqueue.delete_min.should eq({1, 1})
+    pqueue.to_a.should eq([{2, 2}])
     pqueue.delete_min.should eq({2, 2})
+    pqueue.to_a.should eq([] of {Int32, Int32})
   end
 
-  it "correctly performs multiple deletions" do
+  it "performs multiple deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     (1..8000).each do |i|
@@ -54,7 +79,7 @@ describe PQueue::PQueue do
     end
   end
 
-  it "correctly performs parallel insertions" do
+  it "performs parallel insertions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     wg = WaitGroup.new 8
@@ -87,7 +112,7 @@ describe PQueue::PQueue do
     end
   end
 
-  it "correctly performs parallel deletions" do
+  it "performs parallel deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     (1..8000).each do |i|
@@ -125,7 +150,7 @@ describe PQueue::PQueue do
     end
   end
 
-  it "Parallel insertions and deletions" do
+  it "performs parallel insertions and deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     fibers = 16
@@ -179,27 +204,5 @@ describe PQueue::PQueue do
     (1..inserted).each do |i|
       a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
     end
-  end
-
-  it "updates a value" do
-    pqueue = PQueue::PQueue(Int32, Int32).new 10
-
-    pqueue.insert(2, 2)
-    pqueue.insert(1, 1)
-    pqueue.insert(3, 3)
-
-    pqueue.insert(2, 10)
-
-    pqueue.to_a.should eq [{1, 1}, {2, 10}, {3, 3}]
-  end
-
-  it "is an enumerable" do
-    pqueue = PQueue::PQueue(Int32, Int32).new 10
-
-    pqueue.insert(2, 2)
-    pqueue.insert(1, 1)
-    pqueue.insert(3, 3)
-
-    pqueue.map { |v| {v[0], v[1] + 1} }.should eq [{1, 2}, {2, 3}, {3, 4}]
   end
 end
