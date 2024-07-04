@@ -1,4 +1,4 @@
-name: pqueue
+name: pqueue.cr
 version: 0.1.0
 
 authors:
@@ -8,6 +8,6 @@ targets:
   pqueue:
     main: src/pqueue.cr
 
-crystal: '>= 1.13.0-dev'
+crystal: '>= 1.12.0'
 
-license: MIT
+license: Apache 2.0

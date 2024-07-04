@@ -1,18 +1,49 @@
-# pqueue
+# pqueue.cr
 
-TODO: Write a description here
+Crystal implementation of [Lindén and Jonsson's lock-free priority queue](https://github.com/jonatanlinden/PR).
 
 ## Installation
 
-TODO: Write installation instructions here
+1. Add the dependency to your `shard.yml`:
+
+   ```yaml
+   dependencies:
+     pqueue:
+       github: beta-ziliani/pqueue.cr
+   ```
+
+2. Run `shards install`
 
 ## Usage
 
-TODO: Write usage instructions here
+```crystal
+require "pqueue"
 
-## Development
+# The queue retains a number of deleted nodes before restructuring the internal structure.
+# The number in the initializer is the count of such nodes.
+queue = PQueue::PQueue(Int32, String).new 10
 
-TODO: Write development instructions here
+# Insert some elements
+queue.insert 10, "low prio"
+queue.insert 5, "mid prio"
+
+# It also works with the indexing operator
+queue[0] = "high priority"
+
+# Inserting also updates if the key exists
+queue.insert 5, "mid priority"
+
+# Which of course can be done with the indexing operator too
+queue[10] = "low priority"
+
+a = [] of {Int32, String}?
+
+(1..4).each do
+  a << queue.delete_min
+end
+
+puts a # => [{0, "high priority}, {5, "mid priority"}, {10, "low priority"}, nil]
+```
 
 ## Contributing
 
@@ -24,4 +55,4 @@ TODO: Write development instructions here
 
 ## Contributors
 
-- [Beta Ziliani](https://github.com/your-github-user) - creator and maintainer
+- [Beta Ziliani](https://github.com/beta-ziliani) - creator and maintainer
