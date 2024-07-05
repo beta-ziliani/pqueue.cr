@@ -20,7 +20,7 @@ module PQueue
     # Number of levels in the skiplist.
     NUM_LEVELS = 32
 
-    # Using the same name as in the origincal code: `is_marked_ref` means
+    # Using the same name as in the original code: `is_marked_ref` means
     # that the node the pointer is pointing to has been logically deleted.
     private def is_marked_ref(ref : Pointer)
       (ref & 1).address == 1
@@ -105,7 +105,7 @@ module PQueue
     #  |     |           |     |     |
     #  v     |           |     |     v
     #  _     v           v     |     _
-    # | |    _           _	    v    | |
+    # | |    _           _	    v   | |
     # | |   | |    _    | |    _    | |
     # | |   | |   | |   | |   | |   | |
     #  0     1     2     4     6     7
@@ -175,7 +175,7 @@ module PQueue
         new.@next[0] = succs[0]
 
         # The node is logically inserted once it is present at the bottom level.
-        continue = !cas(preds[0].cast.@next.to_unsafe, succs[0], Box.box(new).as(Pointer(Node(K, V))))
+        continue = !cas(preds[0].cast.@next.to_unsafe, succs[0], new.pointer)
         # either succ has been deleted (modifying preds[0]),
         # or another insert has succeeded or preds[0] is head,
         # and a restructure operation has updated it
@@ -193,7 +193,7 @@ module PQueue
         # prepare next pointer of new node
         new.@next[i] = succs[i]
 
-        if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], Box.box(new).as(Pointer(Node(K, V))))
+        if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], new.pointer)
           # failed due to competing insert or restructure
           del = locate_preds k, preds.to_slice, succs.to_slice
           # if new has been deleted, we're done
