@@ -28,6 +28,54 @@ describe PQueue::PQueue do
     pqueue.to_a.should eq [{1, 1}, {2, 10}, {3, 3}]
   end
 
+  it "deletes an arbitrary value" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.insert(2, 2)
+    pqueue.insert(1, 1)
+    pqueue.insert(3, 3)
+
+    pqueue.delete(2).should be_true
+
+    pqueue.to_a.should eq [{1, 1}, {3, 3}]
+
+    pqueue.delete(1).should be_true
+
+    pqueue.to_a.should eq [{3, 3}]
+
+    pqueue.delete(3).should be_true
+
+    pqueue.to_a.should eq [] of {Int32, Int32}
+  end
+
+  it "deletes several arbitrary values", focus: true do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    (1..8000).each do |i|
+      pqueue.insert(i, i)
+    end
+
+    all = pqueue.to_a
+
+    sample = all.sample 3000
+    sample.each do |t|
+      pqueue.delete(t[0]).should be_true
+    end
+
+    a = pqueue.to_a
+    b = a - sample
+    (a - b).should eq([] of {Int32, Int32})
+    a.size.should eq(all.size - sample.size)
+  end
+
+  it "returns false when deleting a non-existing key" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    pqueue.delete(2).should be_false
+    pqueue.insert(2, 2)
+    pqueue.delete(1).should be_false
+  end
+
   it "is an enumerable" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
@@ -204,5 +252,38 @@ describe PQueue::PQueue do
     (1..inserted).each do |i|
       a.includes?({i, i}) || del.includes?({i, i}) || raise "{#{i}, #{i}} dissappeared"
     end
+  end
+
+  pending "performs parallel arbitrary deletions" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    (1..8000).each do |i|
+      pqueue.insert i, i
+    end
+
+    all = pqueue.to_a.map { |v| v[0] }
+    samples = all.sample(4000).in_slices_of 500
+
+    wg = WaitGroup.new 8
+
+    (0...8).each do |i|
+      spawn do
+        (0...500).each do |j|
+          pqueue.delete(samples[i][j])
+        end
+        wg.done
+      end
+    end
+
+    wg.wait
+
+    (0...8).each do |i|
+      all = all - samples[i]
+    end
+
+    a = pqueue.to_a
+    a.size.should eq all.size
+
+    all.should eq a
   end
 end

@@ -1,4 +1,5 @@
 require "atomic"
+require "log"
 
 module PQueue
   # Priority queue implemented as a lock-free skiplist.
@@ -156,7 +157,7 @@ module PQueue
       preds = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
       succs = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
 
-      new = Node.new(k, rand(NUM_LEVELS), v)
+      new = Node.new(k, rand(NUM_LEVELS - 1) + 1, v)
 
       continue = true
       while continue
@@ -332,6 +333,39 @@ module PQueue
       v
     end
 
+    def delete(k : K) : Bool
+      # The predecessors, preds, and successors, succs, at all levels are
+      # recorded, after which the node n is deleted from bottom to
+      # top.
+      void = Pointer(Node(K, V)).null
+      preds = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
+      succs = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
+
+      del = locate_preds k, preds.to_slice, succs.to_slice
+
+      # return if key does not exist, i.e., is not present in a non-deleted node
+      return false if succs[0].cast == @tail || succs[0].cast.k != k
+
+      # delete at each level in turn.
+      i = 0
+      while i < succs[0].cast.level
+        preds[i].cast.@next[i] = succs[i].cast.@next[i]
+        # TODO: what if succs[i].@next[i] changes? maybe it's fine, because it means something was added/deleted in the middle
+        # and we'll be updated
+        # if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], succs[i].cast.@next[i])
+        #   p "failed"
+        #   # failed due to competing insert or restructure
+        #   del = locate_preds k, preds.to_slice, succs.to_slice
+        #   # if k has been deleted, we're done
+        #   break if del.cast != @tail && del.cast.k == k
+        # else
+        # Succeeded at this level.
+        i += 1
+        # end
+      end
+      true
+    end
+
     # Return the elements in the queue as an array.
     def to_a : Array({K, V})
       a = [] of {K, V}
@@ -372,6 +406,33 @@ module PQueue
       end
 
       io.puts "TAIL #{@tail.pointer.address.to_s(16)}"
+    end
+
+    def to_md_mermaid
+      s = String::Builder.new
+
+      s << "```mermaid\n"
+      s << "graph LR\n"
+      x : Node(K, V) = @head
+
+      loop do
+        k = x == @head ? "HEAD" : x.k.to_s
+        (0...x.level).each do |i|
+          s << "  #{x.pointer.address.to_s(16)}(#{k}) --> #{x.@next[i].address.to_s(16)}\n"
+        end
+
+        x = get_unmarked_ref(x.@next[0]).cast
+
+        if x == @tail
+          s << "  #{x.pointer.address.to_s(16)}(TAIL)\n"
+          break
+        end
+
+        # deleted = is_marked_ref(x.@next[0]) ? "(d) " : ""
+      end
+
+      s << "```\n\n"
+      s.to_s
     end
   end
 end
