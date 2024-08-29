@@ -38,13 +38,19 @@ module PQueue
     end
 
     private class Node(K, V)
+      enum State
+        INSERTED
+        INSERTING
+        DELETED
+      end
+
       getter k : K
 
       # The level of the node in the skiplist.
       property level : Int32
 
       # If the node is in the process of being inserted.
-      property inserting : Bool = true
+      property state : State = :inserted
 
       property v : V
 
@@ -69,8 +75,8 @@ module PQueue
       p_tail = @tail.pointer
       tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new p_tail
       @head = Node.new sentinel_k, NUM_LEVELS, sentinel_v, tails
-      @head.inserting = false
-      @tail.inserting = false
+      @head.state = :inserted
+      @tail.state = :inserted
     end
 
     private def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
@@ -207,7 +213,7 @@ module PQueue
 
       # new is always something at this point (the commentted out if new)
       # this flag must be reset *after* all CAS have completed
-      new.inserting = false # if new
+      new.state = :inserted # if new
     end
 
     # Same as `insert`, but with the subscript operator.
@@ -286,7 +292,7 @@ module PQueue
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
-        newhead = x if newhead.nil? && x.cast.inserting
+        newhead = x if newhead.nil? && x.cast.state == :inserting
 
         if is_marked_ref(nxt)
           x = get_unmarked_ref nxt
@@ -341,7 +347,7 @@ module PQueue
       preds = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
       succs = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new void
 
-      del = locate_preds k, preds.to_slice, succs.to_slice
+      locate_preds k, preds.to_slice, succs.to_slice
 
       # return if key does not exist, i.e., is not present in a non-deleted node
       return false if succs[0].cast == @tail || succs[0].cast.k != k
@@ -349,19 +355,15 @@ module PQueue
       # delete at each level in turn.
       i = 0
       while i < succs[0].cast.level
-        preds[i].cast.@next[i] = succs[i].cast.@next[i]
-        # TODO: what if succs[i].@next[i] changes? maybe it's fine, because it means something was added/deleted in the middle
-        # and we'll be updated
-        # if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], succs[i].cast.@next[i])
-        #   p "failed"
-        #   # failed due to competing insert or restructure
-        #   del = locate_preds k, preds.to_slice, succs.to_slice
-        #   # if k has been deleted, we're done
-        #   break if del.cast != @tail && del.cast.k == k
-        # else
-        # Succeeded at this level.
-        i += 1
-        # end
+        if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], succs[i].cast.@next[i])
+          # failed due to competing insert or restructure
+          locate_preds k, preds.to_slice, succs.to_slice
+          # if k has been deleted, we're done
+          break if succs[0].cast == @tail || succs[0].cast.k != k
+        else
+          # Succeeded at this level.
+          i += 1
+        end
       end
       true
     end
@@ -408,31 +410,25 @@ module PQueue
       io.puts "TAIL #{@tail.pointer.address.to_s(16)}"
     end
 
-    def to_md_mermaid
-      s = String::Builder.new
-
-      s << "```mermaid\n"
-      s << "graph LR\n"
+    def to_mermaid(io)
+      io << "graph LR\n"
       x : Node(K, V) = @head
 
       loop do
         k = x == @head ? "HEAD" : x.k.to_s
         (0...x.level).each do |i|
-          s << "  #{x.pointer.address.to_s(16)}(#{k}) --> #{x.@next[i].address.to_s(16)}\n"
+          io << "  #{x.pointer.address.to_s(16)}(#{k}) --#{i}--> #{x.@next[i].address.to_s(16)}\n"
         end
 
         x = get_unmarked_ref(x.@next[0]).cast
 
         if x == @tail
-          s << "  #{x.pointer.address.to_s(16)}(TAIL)\n"
+          io << "  #{x.pointer.address.to_s(16)}(TAIL)\n"
           break
         end
 
         # deleted = is_marked_ref(x.@next[0]) ? "(d) " : ""
       end
-
-      s << "```\n\n"
-      s.to_s
     end
   end
 end

@@ -48,7 +48,7 @@ describe PQueue::PQueue do
     pqueue.to_a.should eq [] of {Int32, Int32}
   end
 
-  it "deletes several arbitrary values", focus: true do
+  it "deletes several arbitrary values" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     (1..8000).each do |i|
@@ -198,7 +198,7 @@ describe PQueue::PQueue do
     end
   end
 
-  it "performs parallel insertions and deletions" do
+  it "performs parallel insertions and min deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
     fibers = 16
@@ -254,22 +254,27 @@ describe PQueue::PQueue do
     end
   end
 
-  pending "performs parallel arbitrary deletions" do
+  it "performs parallel arbitrary deletions" do
     pqueue = PQueue::PQueue(Int32, Int32).new 10
 
-    (1..8000).each do |i|
+    elems = 10
+    to_delete = elems // 2
+    fibers = 2
+    to_delete_each = to_delete // fibers
+
+    (1..elems).each do |i|
       pqueue.insert i, i
     end
 
-    all = pqueue.to_a.map { |v| v[0] }
-    samples = all.sample(4000).in_slices_of 500
+    all = pqueue.to_a
+    samples = all.sample(to_delete).in_slices_of(to_delete_each)
 
-    wg = WaitGroup.new 8
+    wg = WaitGroup.new fibers
 
-    (0...8).each do |i|
+    (0...fibers).each do |i|
       spawn do
-        (0...500).each do |j|
-          pqueue.delete(samples[i][j])
+        (0...to_delete_each).each do |j|
+          pqueue.delete(samples[i][j][0])
         end
         wg.done
       end
@@ -277,13 +282,114 @@ describe PQueue::PQueue do
 
     wg.wait
 
-    (0...8).each do |i|
-      all = all - samples[i]
+    theoretic_left = all
+    (0...fibers).each do |i|
+      theoretic_left = theoretic_left - samples[i]
     end
 
-    a = pqueue.to_a
-    a.size.should eq all.size
+    real_left = pqueue.to_a
 
-    all.should eq a
+    (theoretic_left - real_left).should eq [] of {Int32, Int32}
+    if (real_left - theoretic_left).size > 0
+      puts "Theoretic left: #{theoretic_left}"
+      puts "Real left: #{real_left}"
+
+      pqueue.to_mermaid STDOUT
+      raise "failed"
+    end
+  end
+
+  it "performs parallel arbitrary deletions 2" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    elems = 4
+    fibers = 2
+
+    (1..elems).each do |i|
+      pqueue.insert i, i
+    end
+
+    all = pqueue.to_a
+
+    wg = WaitGroup.new fibers
+
+    spawn do
+      pqueue.delete 3
+
+      wg.done
+    end
+
+    spawn do
+      pqueue.delete 2
+
+      wg.done
+    end
+    wg.wait
+
+    theoretic_left = all - [{2, 2}, {3, 3}]
+
+    real_left = pqueue.to_a
+
+    (theoretic_left - real_left).should eq [] of {Int32, Int32}
+    if (real_left - theoretic_left).size > 0
+      puts "Theoretic left: #{theoretic_left}"
+      puts "Real left: #{real_left}"
+
+      pqueue.to_mermaid STDOUT
+      raise "failed"
+    end
+  end
+
+  it "performs parallel insertions and deletions" do
+    pqueue = PQueue::PQueue(Int32, Int32).new 10
+
+    fibers = 16
+    delete_each = 600
+    insert_each = 2000
+    deleted = fibers // 2 * delete_each
+    inserted = fibers // 2 * insert_each
+
+    to_delete = (1..inserted).to_a.sample(deleted).in_slices_of(delete_each)
+
+    wg = WaitGroup.new fibers
+    ch = Channel(Int32?).new deleted
+
+    (0...fibers).each do |i|
+      if i % 2 == 0
+        spawn do
+          (1..insert_each).each do |j|
+            k = (i//2) * insert_each + j
+            pqueue.insert(k, k)
+          end
+          wg.done
+        end
+      else
+        spawn do
+          # wait a bit to let the other coroutines insert some elements
+          sleep 35.millisecond
+          (0...delete_each).each do |j|
+            k = to_delete[i//2][j]
+            t = pqueue.delete k
+            ch.send(t ? k : nil)
+          end
+          wg.done
+        end
+      end
+    end
+
+    wg.wait
+
+    del = [] of Int32
+    (0...deleted).each do
+      t = ch.receive
+      del << t if t
+    end
+
+    del.sort!
+    a = pqueue.to_a
+    a.should eq a.sort
+
+    (a - del.map { |i| {i, i} }).should eq a
+    (del - a.map { |i, _| i }).should eq del
   end
 end
