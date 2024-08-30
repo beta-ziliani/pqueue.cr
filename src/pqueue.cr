@@ -38,19 +38,13 @@ module PQueue
     end
 
     private class Node(K, V)
-      enum State
-        INSERTED
-        INSERTING
-        DELETED
-      end
-
       getter k : K
 
       # The level of the node in the skiplist.
       property level : Int32
 
       # If the node is in the process of being inserted.
-      property state : State = :inserted
+      property inserting : Bool = true
 
       property v : V
 
@@ -75,8 +69,8 @@ module PQueue
       p_tail = @tail.pointer
       tails = StaticArray(Pointer(Node(K, V)), NUM_LEVELS).new p_tail
       @head = Node.new sentinel_k, NUM_LEVELS, sentinel_v, tails
-      @head.state = :inserted
-      @tail.state = :inserted
+      @head.inserting = false
+      @tail.inserting = false
     end
 
     private def cas(p : Pointer(Pointer(A)), expected : Pointer(A), new : Pointer(A)) : Bool forall A
@@ -213,7 +207,7 @@ module PQueue
 
       # new is always something at this point (the commentted out if new)
       # this flag must be reset *after* all CAS have completed
-      new.state = :inserted # if new
+      new.inserting = false # if new
     end
 
     # Same as `insert`, but with the subscript operator.
@@ -292,7 +286,7 @@ module PQueue
         # Do not allow head to point past a node currently being
         # inserted. This makes the lock-freedom quite a theoretic
         # matter.
-        newhead = x if newhead.nil? && x.cast.state == :inserting
+        newhead = x if newhead.nil? && x.cast.inserting
 
         if is_marked_ref(nxt)
           x = get_unmarked_ref nxt
