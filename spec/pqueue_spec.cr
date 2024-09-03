@@ -223,7 +223,7 @@ describe PQueue::PQueue do
         spawn do
           # wait a bit to let the other coroutines insert some elements
           sleep 1.millisecond
-          (0...delete_each).each do
+          (0...delete_each).each do |j|
             t = pqueue.delete_min
             ch.send t
           end
@@ -233,7 +233,7 @@ describe PQueue::PQueue do
     end
 
     wg.wait
-
+    
     del = [] of {Int32, Int32}?
     (0...deleted).each do
       t = ch.receive

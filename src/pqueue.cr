@@ -111,38 +111,24 @@ module PQueue
     # | |   | |   | |   | |   | |   | |
     #  0     1     2     4     6     7
     #  d     d     d
-    private def locate_preds(k : K, preds : Slice(Pointer(Node(K, V))), succs : Slice(Pointer(Node(K, V)))) : Pointer(Node(K, V))
-      d = false
-
-      del = Pointer(Node(K, V)).null
+    private def locate_preds(k : K, preds : Slice(Pointer(Node(K, V))), succs : Slice(Pointer(Node(K, V)))) : Nil
       pred = @head.pointer
       i = NUM_LEVELS - 1
 
       while (i >= 0)
-        cur = pred.cast.@next[i]
-
-        d = is_marked_ref cur
-        cur = get_unmarked_ref cur
+        cur = get_unmarked_ref pred.cast.@next[i]
 
         # The original code requires sentinel nodes to have bottom and top elements.
         # Instead, we use `uninitialized`, meaning we can't acccess that field and need to guard it.
-        while (c = cur.cast) != @tail &&
-              ((c.k < k || is_marked_ref(cur.cast.@next[0])) || ((i == 0) && d))
-          # Record bottom level deleted node not having delete flag
-          # set, if traversed.
-          del = cur if i == 0 && d
-
+        while (c = cur.cast) != @tail && (c.k < k)
           pred = cur
-          cur = pred.cast.@next[i]
-          d = is_marked_ref cur
-          cur = get_unmarked_ref cur
+          cur = get_unmarked_ref pred.cast.@next[i]
         end
 
         preds[i] = pred
         succs[i] = cur
         i -= 1
       end
-      del
     end
 
     # Insert a new node n with key k and value v. If the key exists, it's value is updated.
@@ -167,7 +153,7 @@ module PQueue
         # return if key already exists, i.e., is present in a non-deleted node
         if (n = succs[0].cast) != @tail &&
            n.k == k &&
-           !is_marked_ref(preds[0].cast.@next[0]) &&
+           !is_marked_ref(preds[0].cast.@next[0]) && # TODO: if it's deleted, we must make it live again
            preds[0].cast.@next[0] == succs[0]
           n.v = v # update value
           return
@@ -175,8 +161,12 @@ module PQueue
 
         new.@next[0] = succs[0]
 
-        # The node is logically inserted once it is present at the bottom level.
-        continue = !cas(preds[0].cast.@next.to_unsafe, succs[0], new.pointer)
+        if is_marked_ref preds[0].cast.@next[0]
+          continue = !cas(preds[0].cast.@next.to_unsafe, get_marked_ref(succs[0]), new.pointer)
+        else
+          # The node is logically inserted once it is present at the bottom level.
+          continue = !cas(preds[0].cast.@next.to_unsafe, succs[0], new.pointer)
+        end
         # either succ has been deleted (modifying preds[0]),
         # or another insert has succeeded or preds[0] is head,
         # and a restructure operation has updated it
@@ -189,7 +179,7 @@ module PQueue
         # only new is deleted as well, but this we can't tell) If a
         # candidate successor at any level is deleted, we consider
         # the operation completed.
-        break if is_marked_ref(new.@next[0]) || is_marked_ref(succs[i].cast.@next[0]) || del == succs[i]
+        # break if is_marked_ref(new.@next[0]) || is_marked_ref(succs[i].cast.@next[0]) || del == succs[i]
 
         # prepare next pointer of new node
         new.@next[i] = succs[i]
@@ -344,20 +334,16 @@ module PQueue
       locate_preds k, preds.to_slice, succs.to_slice
 
       # return if key does not exist, i.e., is not present in a non-deleted node
-      return false if succs[0].cast == @tail || succs[0].cast.k != k
+      return false if succs[0].cast == @tail || succs[0].cast.k != k || is_marked_ref(preds[0])
 
-      # delete at each level in turn.
-      i = 0
-      while i < succs[0].cast.level
-        if !cas(preds[i].cast.@next.to_unsafe + i, succs[i], succs[i].cast.@next[i])
-          # failed due to competing insert or restructure
-          locate_preds k, preds.to_slice, succs.to_slice
-          # if k has been deleted, we're done
-          break if succs[0].cast == @tail || succs[0].cast.k != k
-        else
-          # Succeeded at this level.
-          i += 1
-        end
+      # delete it while the prev is not changed
+      while true
+        break if cas(preds[0].cast.@next.to_unsafe, succs[0], get_marked_ref(succs[0]))
+        puts "cas failed"
+        # failed due to competing insert or restructure
+        locate_preds k, preds.to_slice, succs.to_slice
+        # if k has been deleted, we're done
+        break if succs[0].cast == @tail || succs[0].cast.k != k || is_marked_ref(preds[0])
       end
       true
     end
@@ -407,21 +393,21 @@ module PQueue
     def to_mermaid(io)
       io << "graph LR\n"
       x : Node(K, V) = @head
+      deleted = ""
 
       loop do
         k = x == @head ? "HEAD" : x.k.to_s
         (0...x.level).each do |i|
-          io << "  #{x.pointer.address.to_s(16)}(#{k}) --#{i}--> #{x.@next[i].address.to_s(16)}\n"
+          io << "  #{x.pointer.address.to_s(16)}(#{k}#{deleted}) --#{i}--> #{get_unmarked_ref(x.@next[i]).address.to_s(16)}\n"
         end
 
+        deleted = is_marked_ref(x.@next[0]) ? " d" : ""
         x = get_unmarked_ref(x.@next[0]).cast
 
         if x == @tail
           io << "  #{x.pointer.address.to_s(16)}(TAIL)\n"
           break
         end
-
-        # deleted = is_marked_ref(x.@next[0]) ? "(d) " : ""
       end
     end
   end
